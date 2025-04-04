@@ -41,12 +41,13 @@ public static class ServiceCollectionChatClientExtensions
         Func<ChatClientBuilder, ChatClientBuilder>? builder = null)
     {
         uri ??= new Uri("http://localhost:11434");
-        return services.AddChatClient(pipeline =>
+        var chatClientBuilder = services.AddChatClient(services =>
         {
-            builder?.Invoke(pipeline);
-            var httpClient = pipeline.Services.GetService<HttpClient>() ?? new();
-            return pipeline.Use(new OllamaChatClient(uri, modelName, httpClient));
+            var httpClient = services.GetService<HttpClient>() ?? new();
+            return new OllamaChatClient(uri, modelName, httpClient);
         });
+        builder?.Invoke(chatClientBuilder);
+        return services;
     }
     public static IServiceCollection AddOpenAIChatClient(
         this IHostApplicationBuilder hostBuilder,
@@ -81,16 +82,17 @@ public static class ServiceCollectionChatClientExtensions
         Uri? endpoint = null,
         Func<ChatClientBuilder, ChatClientBuilder>? builder = null)
     {
-        return services
+        var chatClientBuilder = services
             .AddSingleton(_ => endpoint is null
                 ? new OpenAIClient(apiKey)
                 : new AzureOpenAIClient(endpoint, new ApiKeyCredential(apiKey)))
-            .AddChatClient(pipeline =>
+            .AddChatClient(services =>
             {
-                builder?.Invoke(pipeline);
-                var openAiClient = pipeline.Services.GetRequiredService<OpenAIClient>();
-                return pipeline.Use(openAiClient.AsChatClient(modelOrDeploymentName));
+                var openAiClient = services.GetRequiredService<OpenAIClient>();
+                return openAiClient.GetChatClient(modelOrDeploymentName).AsIChatClient();
             });
+        builder?.Invoke(chatClientBuilder);
+        return services;
     }
     public static IServiceCollection AddAzureChatClient(
         this IHostApplicationBuilder hostBuilder,
@@ -109,12 +111,12 @@ public static class ServiceCollectionChatClientExtensions
         }
         var endpoint = $"{serviceName}:Endpoint" ?? throw new InvalidOperationException($"No endpoint was specified for the Azure Inference Chat Client");
         var endpointUri = string.IsNullOrEmpty(endpoint) ? null : new Uri(endpoint);
-        return hostBuilder.Services.AddChatClient(pipeline =>
+        var chatClientBuilder = hostBuilder.Services.AddChatClient(pipeline =>
         {
-            builder?.Invoke(pipeline);
             var token = Environment.GetEnvironmentVariable("GH_TOKEN") ?? throw new InvalidOperationException("No model access token was found in the environment variable GH_TOKEN");
-            return pipeline.Use(new ChatCompletionsClient(
-            endpointUri, new AzureKeyCredential(token)).AsChatClient(modelOrDeploymentName));
+            return new ChatCompletionsClient(endpointUri, new AzureKeyCredential(token)).AsIChatClient(modelOrDeploymentName);
         });
+        builder?.Invoke(chatClientBuilder);
+        return hostBuilder.Services;
     }
 }

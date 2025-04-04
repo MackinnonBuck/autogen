@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Tools.cs
 
-using System.ComponentModel;
 using System.Reflection;
 using Microsoft.Extensions.AI;
 
@@ -9,37 +8,6 @@ namespace Microsoft.AutoGen.AgentChat.Abstractions;
 
 // TODO: This likely should live as a "Component" in an Agent-building ClassLib?
 // It seems like it could have applicability beyond AgentChat.
-
-public static class ReflectionExtensions
-{
-    public static AIFunctionParameterMetadata ToAIFunctionMetadata(this ParameterInfo pi)
-    {
-        return new AIFunctionParameterMetadata(pi.Name!)
-        {
-            Description = pi.GetCustomAttribute<DescriptionAttribute>()?.Description,
-
-            ParameterType = pi.ParameterType,
-
-            HasDefaultValue = pi.HasDefaultValue,
-            IsRequired = !pi.HasDefaultValue,
-            DefaultValue = pi.DefaultValue,
-
-            // Schema = JSONSchema of type
-        };
-    }
-
-    public static AIFunctionReturnParameterMetadata ToAIFunctionReturnMetadata(this ParameterInfo rpi)
-    {
-        return new AIFunctionReturnParameterMetadata
-        {
-            Description = rpi.GetCustomAttribute<DescriptionAttribute>()?.Description,
-
-            ParameterType = rpi.ParameterType
-
-            //Schema = JSONSchema of type
-        };
-    }
-}
 
 public class ParameterSchema(string name, Type type, bool isRequired = false, object? defaultValue = default)
 {
@@ -52,16 +20,7 @@ public class ParameterSchema(string name, Type type, bool isRequired = false, ob
     public static implicit operator ParameterSchema(ParameterInfo parameterInfo)
     {
         Type parameterType = parameterInfo.ParameterType;
-        return ParameterSchema<object>.Create(parameterType, parameterInfo.Name!, parameterInfo.HasDefaultValue, parameterInfo.DefaultValue);
-    }
-
-    public static implicit operator ParameterSchema(AIFunctionParameterMetadata parameterMetadata)
-    {
-        Type parameterType = parameterMetadata.ParameterType!; // TODO: Deal with missing ParameterTypes
-        return ParameterSchema<object>.Create(parameterType,
-                                              parameterMetadata.Name,
-                                              parameterMetadata.IsRequired,
-                                              parameterMetadata.DefaultValue);
+        return ParameterSchema<object>.Create(parameterType, parameterInfo.Name!, !parameterInfo.HasDefaultValue, parameterInfo.DefaultValue);
     }
 }
 
@@ -129,24 +88,39 @@ public static class TypeExtensions
 /// <summary>
 /// Projects a <see cref="AIFunction"/> as an <see cref="ITool"/>.
 /// </summary>
-/// <param name="aiFunction">The <see cref="AIFunction"/> to wrap.</param>
-public class AIFunctionTool(AIFunction aiFunction) : ITool
+public class AIFunctionTool : ITool
 {
+    private MethodInfo underlyingMethod;
+
+    /// <summary>
+    /// Projects a <see cref="AIFunction"/> as an <see cref="ITool"/>.
+    /// </summary>
+    /// <param name="aiFunction">The <see cref="AIFunction"/> to wrap.</param>
+    public AIFunctionTool(AIFunction aiFunction)
+    {
+        underlyingMethod = aiFunction.UnderlyingMethod
+            ?? throw new InvalidOperationException(
+                $"An {nameof(AIFunctionTool)} can only be created from an {nameof(Extensions.AI.AIFunction)} " +
+                $"with an underlying .NET method.");
+
+        AIFunction = aiFunction;
+    }
+
     /// <inheritdoc cref="ITool.AIFunction" />
-    public AIFunction AIFunction { get; } = aiFunction;
+    public AIFunction AIFunction { get; }
 
     /// <inheritdoc cref="ITool.Name" />
-    public string Name => this.AIFunction.Metadata.Name;
+    public string Name => this.AIFunction.Name;
 
     /// <inheritdoc cref="ITool.Description" />
-    public string Description => this.AIFunction.Metadata.Description;
+    public string Description => this.AIFunction.Description;
 
     /// <inheritdoc cref="ITool.Parameters" />
-    public IEnumerable<ParameterSchema> Parameters => from rawParameter in this.AIFunction.Metadata.Parameters
+    public IEnumerable<ParameterSchema> Parameters => from rawParameter in this.underlyingMethod.GetParameters()
                                                       select (ParameterSchema)rawParameter;
 
     /// <inheritdoc cref="ITool.ReturnType" />
-    public Type ReturnType => this.AIFunction.Metadata.ReturnParameter.ParameterType!; // TODO: Deal with missing return types
+    public Type ReturnType => this.underlyingMethod.ReturnType;
 
     /// <inheritdoc cref="ITool.ExecuteAsync" />
     public Task<object> ExecuteAsync(IEnumerable<object> parameters, CancellationToken cancellationToken = default)
@@ -164,21 +138,10 @@ public class CallableTool(string name, string description, Delegate callable)
 {
     internal static AIFunction CreateAIFunction(string name, string description, Delegate callable)
     {
-        MethodInfo methodInfo = callable.Method;
-
-        IEnumerable<AIFunctionParameterMetadata> parameters =
-            from parameterInfo in methodInfo.GetParameters()
-            select parameterInfo.ToAIFunctionMetadata();
-
-        AIFunctionReturnParameterMetadata returnParameter = methodInfo.ReturnParameter.ToAIFunctionReturnMetadata();
-
-        AIFunctionFactoryCreateOptions createOptions = new()
+        AIFunctionFactoryOptions createOptions = new()
         {
             Name = name,
             Description = description,
-            Parameters = parameters.ToList(),
-            ReturnParameter = returnParameter,
-            // SerializerOptions = TODO: How do we maintain consistency with Python?
         };
 
         return AIFunctionFactory.Create(callable, createOptions);

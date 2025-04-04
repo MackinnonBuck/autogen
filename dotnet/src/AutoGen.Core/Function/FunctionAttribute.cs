@@ -3,7 +3,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Reflection;
+
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.AI;
 
@@ -69,36 +72,17 @@ public class FunctionContract
     /// </summary>
     public string? ReturnDescription { get; set; }
 
-    public static implicit operator FunctionContract(AIFunctionMetadata metadata)
+    public static implicit operator FunctionContract(AIFunction function)
     {
         return new FunctionContract
         {
-            Namespace = metadata.AdditionalProperties.ContainsKey(NamespaceKey) ? metadata.AdditionalProperties[NamespaceKey] as string : null,
-            ClassName = metadata.AdditionalProperties.ContainsKey(ClassNameKey) ? metadata.AdditionalProperties[ClassNameKey] as string : null,
-            Name = metadata.Name,
-            Description = metadata.Description,
-            Parameters = metadata.Parameters?.Select(p => (FunctionParameterContract)p).ToList(),
-            ReturnType = metadata.ReturnParameter.ParameterType,
-            ReturnDescription = metadata.ReturnParameter.Description,
-        };
-    }
-
-    public static implicit operator AIFunctionMetadata(FunctionContract contract)
-    {
-        return new AIFunctionMetadata(contract.Name)
-        {
-            Description = contract.Description,
-            ReturnParameter = new AIFunctionReturnParameterMetadata()
-            {
-                Description = contract.ReturnDescription,
-                ParameterType = contract.ReturnType,
-            },
-            AdditionalProperties = new Dictionary<string, object?>
-            {
-                [NamespaceKey] = contract.Namespace,
-                [ClassNameKey] = contract.ClassName,
-            },
-            Parameters = [.. contract.Parameters?.Select(p => (AIFunctionParameterMetadata)p)!],
+            Namespace = function.AdditionalProperties.ContainsKey(NamespaceKey) ? function.AdditionalProperties[NamespaceKey] as string : null,
+            ClassName = function.AdditionalProperties.ContainsKey(ClassNameKey) ? function.AdditionalProperties[ClassNameKey] as string : null,
+            Name = function.Name,
+            Description = function.Description,
+            Parameters = function.UnderlyingMethod?.GetParameters().Select(p => (FunctionParameterContract)p).ToList(),
+            ReturnType = function.UnderlyingMethod?.ReturnType,
+            ReturnDescription = function.UnderlyingMethod?.ReturnParameter.GetCustomAttribute<DescriptionAttribute>()?.Description,
         };
     }
 }
@@ -133,28 +117,15 @@ public class FunctionParameterContract
     /// </summary>
     public object? DefaultValue { get; set; }
 
-    // convert to/from FunctionParameterMetadata
-    public static implicit operator FunctionParameterContract(AIFunctionParameterMetadata metadata)
+    public static implicit operator FunctionParameterContract(ParameterInfo parameterInfo)
     {
         return new FunctionParameterContract
         {
-            Name = metadata.Name,
-            Description = metadata.Description,
-            ParameterType = metadata.ParameterType,
-            IsRequired = metadata.IsRequired,
-            DefaultValue = metadata.DefaultValue,
-        };
-    }
-
-    public static implicit operator AIFunctionParameterMetadata(FunctionParameterContract contract)
-    {
-        return new AIFunctionParameterMetadata(contract.Name!)
-        {
-            DefaultValue = contract.DefaultValue,
-            Description = contract.Description,
-            IsRequired = contract.IsRequired,
-            ParameterType = contract.ParameterType,
-            HasDefaultValue = contract.DefaultValue != null,
+            Name = parameterInfo.Name,
+            Description = parameterInfo.GetCustomAttribute<DescriptionAttribute>()?.Description,
+            ParameterType = parameterInfo.ParameterType,
+            IsRequired = !parameterInfo.HasDefaultValue,
+            DefaultValue = parameterInfo.DefaultValue,
         };
     }
 }

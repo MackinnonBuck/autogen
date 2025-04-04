@@ -124,7 +124,7 @@ public struct MultiModalData
     /// <param name="item">The <see cref="AIContent"/> to wrap.</param>
     /// <returns>A <see cref="MultiModalData"/> instance wrapping the <paramref name="item"/>.</returns>
     /// <exception cref="ArgumentException">
-    /// Thrown if the <paramref name="item"/> is not a <see cref="TextContent"/> or <see cref="ImageContent"/>.
+    /// Thrown if the <paramref name="item"/> is not a <see cref="TextContent"/> or <see cref="DataContent"/>.
     /// </exception>
     public static MultiModalData CheckTypeAndCreate(AIContent item)
     {
@@ -132,13 +132,13 @@ public struct MultiModalData
         {
             return new MultiModalData(text);
         }
-        else if (item is ImageContent image)
+        else if (item is DataContent data)
         {
-            return new MultiModalData(image);
+            return new MultiModalData(data);
         }
         else
         {
-            throw new ArgumentException("Only TextContent and ImageContent are allowed in MultiModalMessage");
+            throw new ArgumentException($"Only {nameof(TextContent)} and {nameof(DataContent)} are allowed in {nameof(MultiModalMessage)}");
         }
     }
 
@@ -163,13 +163,24 @@ public struct MultiModalData
     }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="MultiModalData"/> with an <see cref="ImageContent"/>.
+    /// Initializes a new instance of the <see cref="MultiModalData"/> with an <see cref="DataContent"/>.
     /// </summary>
-    /// <param name="image">The image to wrap.</param>
-    public MultiModalData(ImageContent image)
+    /// <remarks>
+    /// Only data with an image media type is supported.
+    /// </remarks>
+    /// <param name="data">The data to wrap.</param>
+    public MultiModalData(DataContent data)
     {
-        ContentType = Type.Image;
-        AIContent = image;
+        if (data.HasTopLevelMediaType("image"))
+        {
+            ContentType = Type.Image;
+        }
+        else
+        {
+            throw new InvalidOperationException("Only image media types are supported.");
+        }
+
+        AIContent = data;
     }
 
     /// <summary>
@@ -254,14 +265,14 @@ public class MultiModalMessage : ChatMessage, IList<AIContent>
     }
 
     /// <summary>
-    /// Adds a range of <see cref="ImageContent"/> to the message.
+    /// Adds a range of <see cref="DataContent"/> to the message.
     /// </summary>
-    /// <param name="images">The items to add.</param>
-    public void AddRange(IEnumerable<ImageContent> images)
+    /// <param name="dataItems">The items to add.</param>
+    public void AddRange(IEnumerable<DataContent> dataItems)
     {
-        foreach (ImageContent image in images)
+        foreach (DataContent item in dataItems)
         {
-            this.Add(image);
+            this.Add(item);
         }
     }
 
@@ -284,12 +295,12 @@ public class MultiModalMessage : ChatMessage, IList<AIContent>
     }
 
     /// <summary>
-    /// Adds a <see cref="TextContent"/> to the message.
+    /// Adds a <see cref="DataContent"/> to the message.
     /// </summary>
-    /// <param name="image">The image to add.</param>
-    public void Add(ImageContent image)
+    /// <param name="data">The data to add.</param>
+    public void Add(DataContent data)
     {
-        this.Content.Add(new(image));
+        this.Content.Add(new(data));
     }
 
     /// <summary>
@@ -373,10 +384,10 @@ public class MultiModalMessage : ChatMessage, IList<AIContent>
         this.Content.Insert(index, new(text));
     }
 
-    /// <inheritdoc cref="IList{ImageContent}.Insert(int, ImageContent)"/>
-    public void Insert(int index, ImageContent image)
+    /// <inheritdoc cref="IList{DataContent}.Insert(int, DataContent)"/>
+    public void Insert(int index, DataContent data)
     {
-        this.Content.Insert(index, new(image));
+        this.Content.Insert(index, new(data));
     }
 
     /// <inheritdoc cref="ICollection{AIContent}.Remove" />
@@ -610,7 +621,7 @@ public static class CompletionChatMessageExtensions
             {
                 contentBuilder.AppendLine(textContent.Text);
             }
-            else if (content is ImageContent)
+            else if (content is DataContent dataContent && dataContent.HasTopLevelMediaType("image"))
             {
                 contentBuilder.AppendLine("[Image]");
             }
